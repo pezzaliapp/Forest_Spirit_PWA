@@ -1,18 +1,12 @@
-# Forest Spirit — Ori‑style 2.5D Parallax Platformer (PixiJS, Offline‑Ready)
+# Forest Spirit — 2.5D Parallax (Vanilla Canvas, Offline)
 
-A tiny Ori‑inspired side‑scroller built with **PixiJS** and **no external textures** (everything is procedural).
-It features **5 parallax layers**, a **glowing spirit** character, simple **platformer physics**, a **spot‑light** effect,
-and **collectible energy orbs**.
+This version removes PixiJS and uses **pure HTML5 Canvas**, so it works **100% offline** without any CDN.
+Includes: 5 parallax layers, spotlight around the player, platformer physics, collectible orbs, and touch controls.
 
 ## Run
-- Open `index.html` in a modern browser.
-- Click **Install** to add it as a PWA. It works **offline** after the first load.
+Open `index.html` in any modern browser. Use the **Install** button to add it as a PWA.
 
 ## Controls
-- **Left / Right** to move
-- **Space / Up** to jump
-
-## Tech
-- PixiJS (CDN, cached by Service Worker)
-- PWA: `manifest.webmanifest` + `service-worker.js`
-- Procedural art (gradients, silhouettes, noise)
+- Left / Right to move
+- Space / Up to jump
+- Touch: left/right sides to move, center to jump
