@@ -1,22 +1,12 @@
-// Forest Spirit (Vanilla) — service worker (cache-first local assets)
-const CACHE='forest-spirit-vanilla-v1';
-const ASSETS=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
-
-self.addEventListener('install', e=>{
-  e.waitUntil((async()=>{ const c=await caches.open(CACHE); await c.addAll(ASSETS); self.skipWaiting(); })());
+// Legacy ES5 SW (optional). Safe to ignore if opened via file://
+var CACHE='forest-spirit-legacy-v1';
+var ASSETS=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
+self.addEventListener('install', function(e){
+  e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(ASSETS); }).then(function(){ return self.skipWaiting(); }));
 });
-self.addEventListener('activate', e=>{
-  e.waitUntil((async()=>{ const keys=await caches.keys(); await Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))); self.clients.claim(); })());
+self.addEventListener('activate', function(e){
+  e.waitUntil(caches.keys().then(function(keys){ return Promise.all(keys.map(function(k){ if(k!==CACHE) return caches.delete(k); })); }).then(function(){ return self.clients.claim(); }));
 });
-self.addEventListener('fetch', e=>{
-  e.respondWith((async()=>{
-    const c=await caches.open(CACHE);
-    const m=await c.match(e.request,{ignoreSearch:true});
-    if(m) return m;
-    try{
-      const r=await fetch(e.request);
-      if(new URL(e.request.url).origin===location.origin){ c.put(e.request,r.clone()); }
-      return r;
-    }catch(err){ return m || Response.error(); }
-  })());
+self.addEventListener('fetch', function(e){
+  e.respondWith(caches.match(e.request,{ignoreSearch:true}).then(function(m){ return m || fetch(e.request).then(function(r){ if(new URL(e.request.url).origin===location.origin){ var cp=r.clone(); caches.open(CACHE).then(function(c){ c.put(e.request,cp); }); } return r; }).catch(function(){ return m || Response.error(); }); }));
 });

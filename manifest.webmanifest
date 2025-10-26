@@ -1,5 +1,5 @@
 {
-  "name": "Forest Spirit \u2014 2.5D Parallax (Vanilla Canvas)",
+  "name": "Forest Spirit \u2014 2.5D Parallax (Legacy ES5)",
   "short_name": "ForestSpirit",
   "start_url": "./index.html",
   "display": "standalone",
