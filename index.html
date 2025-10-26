@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Forest Spirit — 2.5D Parallax Platformer</title>
+  <meta name="description" content="Ori-style 2.5D parallax platformer demo. PixiJS, offline-ready PWA." />
+  <meta name="theme-color" content="#0b1022" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    :root{
+      --bg:#0b1022; --ink:#eaf1ff; --muted:#9fb1df; --card:#0d1430; --accent:#55f0ff; --accent2:#7cffb6;
+    }
+    html,body{height:100%}
+    body{margin:0;background:radial-gradient(1200px 600px at 50% -20%,#18224a,var(--bg));color:var(--ink);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    header{
+      position:fixed; inset:12px 12px auto 12px; z-index:5; display:flex; gap:10px; align-items:center;
+      padding:8px 10px; background:#0e1533cc; border:1px solid #1c2550; border-radius:12px; backdrop-filter:blur(6px);
+      box-shadow:0 6px 18px #0006;
+    }
+    header .title{font-weight:700; letter-spacing:.3px}
+    header .pill{display:inline-flex;gap:8px;align-items:center;padding:4px 8px;border:1px solid #1c2550;border-radius:999px;background:#0d173acc}
+    header kbd{padding:2px 6px;border-radius:6px;background:#111a3f;border:1px solid #1c2550}
+    #game{position:fixed; inset:0; display:grid; place-items:center}
+    canvas{display:block; width:100%; height:100%}
+    #hud{
+      position:fixed; right:12px; top:12px; z-index:5; padding:8px 10px; background:#0e1533cc; border:1px solid #1c2550; border-radius:12px; backdrop-filter:blur(6px);
+      display:flex; gap:10px; align-items:center; box-shadow:0 6px 18px #0006;
+    }
+    #installBtn{border:1px solid #1c2550; background:linear-gradient(180deg,#122053,#0b1333); color:var(--ink); padding:6px 10px; border-radius:10px; cursor:pointer}
+    .badge{padding:4px 8px;border-radius:10px;border:1px solid #1c2550;background:#0d173a}
+    a{color:var(--accent)}
+    footer{position:fixed; left:50%; transform:translateX(-50%); bottom:10px; z-index:5; font-size:12px; opacity:.8}
+  </style>
+  <script>
+    // PWA install prompt
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
+    async function doInstall(){
+      if(!deferredPrompt) return alert('Install not available yet — open from a normal browser tab.');
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice; deferredPrompt = null;
+    }
+    // register SW
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', ()=> navigator.serviceWorker.register('./service-worker.js'));
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="pill">
+      <span class="title">Forest Spirit <small style="opacity:.7">— PixiJS 2.5D Parallax</small></span>
+    </div>
+    <div class="pill" title="Move & Jump">
+      <span>Controls</span>
+      <kbd>←</kbd><kbd>→</kbd><kbd>Space/↑</kbd>
+    </div>
+    <div class="pill"><span>Goal: collect <strong>Life Energy</strong> orbs ✨</span></div>
+  </header>
+
+  <div id="hud">
+    <div class="badge" id="energy">Energy: 0 / 10</div>
+    <button id="installBtn" onclick="doInstall()">Install</button>
+  </div>
+
+  <div id="game"></div>
+  <footer>Open‑source demo. No external textures (procedural). Works offline after first load.</footer>
+
+  <!-- PixiJS via CDN (will be cached by the SW for offline use) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/8.1.1/pixi.min.js" integrity="" crossorigin="anonymous"></script>
+
+  <script>
+  (function(){
+    const app = new PIXI.Application({ 
+      resizeTo: window, backgroundAlpha: 0, antialias: true 
+    });
+    document.getElementById('game').appendChild(app.view);
+
+    // Scene graph
+    const world = new PIXI.Container();
+    app.stage.addChild(world);
+
+    // CAMERA
+    const camera = { x: 0, y: 0 };
+    const worldWidth = 6000; // level width
+    const groundY = 520;
+
+    // ---------- UTIL: create gradient textures procedurally ----------
+    function makeGradient(width, height, stops){
+      const g = document.createElement('canvas');
+      g.width = width; g.height = height;
+      const ctx = g.getContext('2d');
+      const grd = ctx.createLinearGradient(0,0,0,height);
+      for(const [off, color] of stops){ grd.addColorStop(off, color); }
+      ctx.fillStyle = grd; ctx.fillRect(0,0,width,height);
+      return PIXI.Texture.from(g);
+    }
+    function makeNoise(width, height, alpha=0.08){
+      const c = document.createElement('canvas'); c.width=width; c.height=height;
+      const ctx = c.getContext('2d'); const id = ctx.createImageData(width, height); const d=id.data;
+      for(let i=0;i<d.length;i+=4){
+        const v = Math.random()*255;
+        d[i]=d[i+1]=d[i+2]=v; d[i+3]=alpha*255;
+      }
+      ctx.putImageData(id,0,0); return PIXI.Texture.from(c);
+    }
+
+    // ---------- LAYERS (Parallax 5x) ----------
+    const layers = new PIXI.Container();
+    world.addChild(layers);
+
+    // Back sky
+    const skyTex = makeGradient(64, 512, [
+      [0, '#0b1022'], [0.6, '#0f1a44'], [1, '#1a245a']
+    ]);
+    const sky = new PIXI.TilingSprite(skyTex, worldWidth, 600);
+    sky.tileScale.set(1,1);
+    layers.addChild(sky);
+
+    // Far mountains (1)
+    function makeHills(color='#0d1b40', height=180, amp=40, period=280){
+      const g = new PIXI.Graphics();
+      g.beginFill(color);
+      g.moveTo(0,600);
+      for(let x=0; x<=1200; x+=20){
+        const y = 600 - height - Math.sin(x/period)*amp - Math.cos(x/(period*0.6))*amp*0.5;
+        g.lineTo(x,y);
+      }
+      g.lineTo(1200,600); g.endFill();
+      return PIXI.Texture.from(app.renderer.generateTexture(g));
+    }
+    const hill1 = new PIXI.TilingSprite(makeHills('#0d1b40', 160, 30, 220), worldWidth, 600);
+    const hill2 = new PIXI.TilingSprite(makeHills('#102154', 220, 36, 260), worldWidth, 600);
+    hill1.alpha = 0.9; hill2.alpha=0.9;
+    layers.addChild(hill1); layers.addChild(hill2);
+
+    // Mid trees silhouette
+    function makeForest(color='#0f254f'){
+      const g = new PIXI.Graphics();
+      g.beginFill(color);
+      let x=0;
+      while(x<1200){
+        const w = 30 + Math.random()*30;
+        const h = 120 + Math.random()*160;
+        const base = 540 + Math.random()*10;
+        // trunk
+        g.drawRect(x+ w*0.45, base-h, w*0.1, h);
+        // crown
+        g.drawPolygon([x,base-h+40, x+w*0.5, base-h-10, x+w, base-h+40, x+w*0.5, base-h+20]);
+        x += 20 + Math.random()*40;
+      }
+      g.drawRect(0,580,1200,20);
+      g.endFill();
+      return PIXI.Texture.from(app.renderer.generateTexture(g));
+    }
+    const trees = new PIXI.TilingSprite(makeForest('#0f254f'), worldWidth, 600);
+    layers.addChild(trees);
+
+    // Foreground bushes
+    function makeBush(color='#143060'){
+      const g = new PIXI.Graphics();
+      g.beginFill(color);
+      for(let i=0;i<40;i++){
+        const x = (i*30)%1200;
+        const y = 520 + Math.sin(i*0.7)*6;
+        const r = 18 + (i%3)*8;
+        g.drawCircle(x,y,r);
+        g.drawCircle(x+10,y+6,r*0.9);
+        g.drawCircle(x-12,y+8,r*0.8);
+      }
+      g.endFill();
+      return PIXI.Texture.from(app.renderer.generateTexture(g));
+    }
+    const bushes = new PIXI.TilingSprite(makeBush('#143060'), worldWidth, 600);
+    layers.addChild(bushes);
+
+    // Ground
+    const ground = new PIXI.Container();
+    world.addChild(ground);
+    const groundTex = makeGradient(16, 64, [[0,'#172b5a'],[1,'#0e1a3d']]);
+    const groundTile = new PIXI.TilingSprite(groundTex, worldWidth, 120);
+    groundTile.y = groundY; ground.addChild(groundTile);
+    const noise = new PIXI.Sprite(makeNoise(512,512,0.05)); noise.alpha=0.4; noise.width=worldWidth; noise.height=600; world.addChild(noise);
+
+    // ---------- PLATFORMS ----------
+    const platforms = [];
+    function addPlatform(x,y,w=220,h=16){
+      const g = new PIXI.Graphics();
+      g.beginFill(0x1a2f66).drawRoundedRect(0,0,w,h,8).endFill();
+      const s = new PIXI.Sprite(app.renderer.generateTexture(g));
+      s.x=x; s.y=y; s.hitArea = new PIXI.Rectangle(0,0,w,h);
+      ground.addChild(s); platforms.push(s);
+    }
+    // a few
+    addPlatform(400, 460, 220);
+    addPlatform(800, 400, 180);
+    addPlatform(1100, 340, 180);
+    addPlatform(1400, 420, 220);
+    addPlatform(1750, 380, 180);
+    addPlatform(2100, 320, 180);
+    addPlatform(2500, 420, 240);
+    addPlatform(2900, 360, 200);
+    addPlatform(3300, 300, 200);
+    addPlatform(3700, 420, 200);
+    addPlatform(4100, 360, 200);
+    addPlatform(4500, 300, 200);
+    addPlatform(4950, 380, 200);
+    addPlatform(5400, 440, 220);
+
+    // ---------- PLAYER (glowing spirit) ----------
+    function makeGlow(radius=14, color=0x88fff6){
+      const g = new PIXI.Graphics();
+      const steps=6;
+      for(let i=steps;i>=1;i--){
+        const r = radius + i*6;
+        const a = 0.06*i;
+        g.beginFill(color, a).drawCircle(0,0,r).endFill();
+      }
+      g.beginFill(0xffffff).drawCircle(0,0,radius*0.5).endFill();
+      return app.renderer.generateTexture(g);
+    }
+    const player = new PIXI.Sprite(makeGlow(16, 0x88fff6));
+    player.anchor.set(0.5);
+    player.x = 100; player.y = groundY-40;
+    player.vx=0; player.vy=0; player.onGround=false;
+    world.addChild(player);
+
+    // LIGHT MASK (spotlight around player)
+    const dark = new PIXI.Graphics();
+    const darkTex = PIXI.Texture.WHITE;
+    const darkSprite = new PIXI.Sprite(darkTex);
+    darkSprite.tint = 0x000000; darkSprite.alpha=0.6; darkSprite.width = worldWidth; darkSprite.height = 600;
+    const lightHole = new PIXI.Graphics(); lightHole.beginFill(0xffffff).drawCircle(0,0,140).endFill();
+    const lightMask = new PIXI.Sprite(app.renderer.generateTexture(lightHole)); lightMask.anchor.set(0.5);
+    const darkness = new PIXI.Container(); darkness.addChild(darkSprite);
+    darkness.mask = lightMask; world.addChild(darkness); world.addChild(lightMask);
+
+    // ---------- ENERGY ORBS ----------
+    const orbs = new PIXI.Container(); world.addChild(orbs);
+    const orbTex = makeGlow(10, 0x7cffb6);
+    const orbList = [];
+    function addOrb(x,y){
+      const s = new PIXI.Sprite(orbTex); s.anchor.set(0.5); s.x=x; s.y=y; s.v=0;
+      s.collected=false; orbs.addChild(s); orbList.push(s);
+    }
+    for(let i=0;i<10;i++){
+      const baseX = 700 + i*450 + Math.random()*120;
+      addOrb(baseX, 280 + Math.random()*120);
+    }
+    let energy=0;
+    const energyEl = document.getElementById('energy');
+    function setEnergy(){ energyEl.textContent = `Energy: ${energy} / 10`; }
+
+    // ---------- INPUT ----------
+    const keys = {};
+    window.addEventListener('keydown', e=> keys[e.key] = true);
+    window.addEventListener('keyup', e=> keys[e.key] = false);
+
+    // ---------- PHYSICS ----------
+    const GRAV = 0.9, MAX_FALL=18, RUN=0.6, FRICTION=0.85, JUMP=-16;
+    function rectsIntersect(a,b){
+      const ar = a.getBounds(); const br = b.getBounds();
+      return ar.x < br.x + br.width && ar.x + ar.width > br.x &&
+             ar.y < br.y + br.height && ar.y + ar.height > br.y;
+    }
+
+    // ---------- GAME LOOP ----------
+    app.ticker.add((dt)=>{
+      // controls
+      const left = keys['ArrowLeft']||keys['a'];
+      const right = keys['ArrowRight']||keys['d'];
+      const jump = keys[' ']||keys['ArrowUp']||keys['w'];
+
+      if(left) player.vx -= RUN*dt;
+      if(right) player.vx += RUN*dt;
+
+      player.vx *= FRICTION;
+      player.vy += GRAV*dt; if(player.vy>MAX_FALL) player.vy=MAX_FALL;
+
+      // horizontal move
+      player.x += player.vx*dt;
+      if(player.x<16) { player.x=16; player.vx=0; }
+      if(player.x>worldWidth-16){ player.x=worldWidth-16; player.vx=0; }
+
+      // vertical move
+      player.y += player.vy*dt;
+      player.onGround = false;
+
+      // ground collision
+      if(player.y > groundY-10){
+        player.y = groundY-10; player.vy=0; player.onGround = true;
+      }
+      // platforms collisions (simple AABB from above)
+      const pbox = new PIXI.Rectangle(player.x-10, player.y-10, 20, 20);
+      for(const p of platforms){
+        const b = p.getBounds();
+        if(pbox.x < b.x+b.width && pbox.x+20 > b.x){
+          if(player.y <= b.y && player.y + player.vy*dt >= b.y-10 && player.vy>0){
+            // land
+            player.y = b.y-10; player.vy=0; player.onGround = true;
+          }
+        }
+      }
+      if(jump && player.onGround){ player.vy = JUMP; player.onGround=false; }
+
+      // camera follow
+      const viewW = app.renderer.width;
+      camera.x = Math.max(0, Math.min(worldWidth - viewW, player.x - viewW*0.4));
+
+      // parallax scroll
+      const cx = -camera.x;
+      sky.tilePosition.x = cx*0.1;
+      hill1.tilePosition.x = cx*0.2;
+      hill2.tilePosition.x = cx*0.3;
+      trees.tilePosition.x = cx*0.45;
+      bushes.tilePosition.x = cx*0.7;
+      ground.x = cx;
+      noise.x = cx;
+      orbs.x = cx;
+      darkness.x = cx;
+      lightMask.x = player.x + cx;
+      lightMask.y = player.y;
+
+      // animate orbs & collect
+      for(const o of orbList){
+        if(o.collected) continue;
+        o.v += 0.06*dt; o.y += Math.sin(o.v)*0.25*dt;
+        const dx = o.x - player.x, dy = (o.y - player.y);
+        if(dx*dx + dy*dy < 26*26){
+          o.collected = true; energy = Math.min(10, energy+1);
+          setEnergy();
+          // tiny burst
+          const burst = new PIXI.Graphics();
+          burst.x = o.x; burst.y = o.y;
+          for(let i=0;i<12;i++){
+            burst.beginFill(0x7cffb6, 0.8).drawCircle(Math.cos(i)*2, Math.sin(i)*2, 2).endFill();
+          }
+          orbs.addChild(burst);
+          app.ticker.addOnce(()=> orbs.removeChild(burst));
+          o.visible=false;
+        }
+      }
+    });
+
+    setEnergy();
+    // Resize: keep height target ~600
+    function onResize(){
+      // nothing custom: resizeTo:window handles it; we clamp world height logic around 600
+    }
+    window.addEventListener('resize', onResize);
+  })();
+  </script>
+</body>
+</html>
